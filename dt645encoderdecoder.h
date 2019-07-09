@@ -16,6 +16,7 @@
 #define DEF_THREE_PHASE     true
 #define DEF_ONLY_ACTIVE     false
 
+#define MAX_PLG_PREC    2
 
 class DT645EncoderDecoder : public QObject
 {

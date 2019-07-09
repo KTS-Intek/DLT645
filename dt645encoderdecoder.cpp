@@ -609,8 +609,14 @@ QVariantHash DT645EncoderDecoder::decodeMeterData(const DecodeMeterMess &threeHa
     case POLL_CODE_READ_END_MONTH       : decodehash = fullEoM(      decoderesult, hashConstData, hashTmpData, step, errwarns); break;
     }
 
-    if(!decodehash.isEmpty())
+    if(!decodehash.isEmpty()){
         MeterPluginHelper::copyHash2hash(decodehash, hashTmpData);
+
+        if(!hashTmpData.value("messFail").toBool() && hashTmpData.value("currEnrg", 0).toInt() > 3){
+            hashTmpData.insert("currEnrg", 5);
+            step = 0xFFFF;
+        }
+    }
 
     if(verboseMode && errwarns.error_counter > 0){
         const ErrCounters errwarnsmirror   = ErrCounters(qMax(0, hashTmpData.value("warning_counter", 0).toInt()), qMax(0, hashTmpData.value("error_counter", 0).toInt()));
@@ -830,10 +836,11 @@ QVariantHash DT645EncoderDecoder::fullTotalEnrg(const MessageValidatorResult &de
   resulthash.insert("vrsn", enableDisableTheEnergyKey(hashTmpData.value("vrsn").toString(), hashTmpData.value("DLT_currEnrgLetter").toString(), true));
 //from the maximum tariff to the lowerest
   QStringList tariffdata;
-  for(int i = 0, imax = decoderesult.listMeterMess.size(), t = 0; i < imax && t <= trff; i += 4, t++){
+  for(int i = 0, imax = decoderesult.listMeterMess.size(), t = 0; i < imax ; i += 4, t++){
       const QString kwhstr = bcdList2normal(decoderesult.listMeterMess.mid(i,4));
       bool ok;
       const qreal kwhreal = kwhstr.toDouble(&ok) * 0.01;
+
       if(!ok){
 
           return resulthash;
@@ -843,7 +850,7 @@ QVariantHash DT645EncoderDecoder::fullTotalEnrg(const MessageValidatorResult &de
       tariffdata.prepend(valStr);
   }
 
-  for(int i = 0, imax = tariffdata.size(); i < imax; i++)
+  for(int i = 0, imax = tariffdata.size(); i < imax && i <= trff; i++)
       resulthash.insert(QString("T%1_%2").arg(i).arg(energyletter), tariffdata.at(i));
 
 

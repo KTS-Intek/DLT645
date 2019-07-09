@@ -26,7 +26,7 @@
 
 #define PLG_4_MATILDA    1
 #define PLG_4_PC         1 //Parametrization
-#define MAX_PLG_PREC    2
+
 
 //-----------------------------------------------------------------------------
 
