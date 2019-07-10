@@ -2,6 +2,8 @@
 
 #include "definedpollcodes.h"
 #include "ucmetereventcodes.h"
+#include "matildalimits.h"
+
 
 ///[!] type-converter
 #include "src/base/prettyvalues.h"
@@ -17,6 +19,13 @@
 DT645EncoderDecoder::DT645EncoderDecoder(QObject *parent) : QObject(parent)
 {
 
+}
+
+//-----------------------------------------------------------------------------
+
+QByteArray DT645EncoderDecoder::getDefPasswd()
+{
+    return "00000000";//bcd
 }
 
 //-----------------------------------------------------------------------------
@@ -44,7 +53,7 @@ QByteArray DT645EncoderDecoder::arr2bcd(const QByteArray &arr)
 {
     QByteArray out;
     for(int i = 0, imax = arr.length(); i < imax; i++)
-        out.append(quint8(arr.mid(i,2).toUShort()));
+        out.append(quint8(arr.at(i)));
     return out;
 }
 
@@ -76,6 +85,14 @@ QByteArray DT645EncoderDecoder::arrRotateExt(const QByteArray &in, const qint8 &
     return out;
 }
 
+QByteArray DT645EncoderDecoder::addAbyte(const QByteArray &in, const qint8 &addbyte)
+{
+    QByteArray out;
+    for(int i = 0, imax = in.length(); i < imax; i++)
+        out.append( qint8(in.at(i)) + addbyte );
+    return out;
+}
+
 //-----------------------------------------------------------------------------
 
 QByteArray DT645EncoderDecoder::getBroadcastAddr()
@@ -96,7 +113,7 @@ QByteArray DT645EncoderDecoder::getNormalMeterAddress(const QByteArray &ni)
 
 QString DT645EncoderDecoder::enableDisableTheEnergyKey(const QString &oldvrsn, const QString &energy, const bool &isSupported)
 {
-//only for A+;A-;R+;R-
+//only for A+;A-;R+;R- and others
     if(oldvrsn.contains(energy))
         return oldvrsn;
     const QString energystate = isSupported ? energy.toUpper() : energy.toLower();
@@ -107,6 +124,28 @@ QString DT645EncoderDecoder::enableDisableTheEnergyKey(const QString &oldvrsn, c
     vrsn.append(energystate);
     return vrsn;
 }
+
+//-----------------------------------------------------------------------------
+
+QString DT645EncoderDecoder::setMeterPhaseCount(const QString &oldvrsn, const bool &isSinglePhaseMeter)
+{
+    if(isSinglePhase(oldvrsn) == isSinglePhaseMeter && !oldvrsn.mid(2,1).startsWith("_"))
+        return oldvrsn;
+
+    const int len = oldvrsn.length();
+    if(len < 2)
+        return oldvrsn;//there is no YY before
+
+    QString vrsn = oldvrsn;
+    const QString text = isSinglePhaseMeter ? "1" : "3";
+    if(len == 2){
+        vrsn.append(text);
+    }else{
+        vrsn.replace(2,1, text);
+    }
+    return vrsn;
+}
+
 //-----------------------------------------------------------------------------
 
 QStringList DT645EncoderDecoder::getSupportedEnrg(const quint8 &code, const QString &version)
@@ -116,29 +155,56 @@ QStringList DT645EncoderDecoder::getSupportedEnrg(const quint8 &code, const QStr
      * - YY - protocol year (97 or 07) - always first two characters
      * - phase count - '1' || '3' || '_'  the third character
      * - relay - R - has realy, r - has no relay, '_' - unk
-     * - <<Energy letter><energy direction>> - Energy letter {A||a,R||r} - upper - supported, lower - not supported, '+' - to a consumer, '-' - from a consumer
+     * - <<Energy letter><energy direction>> - Energy letter {A||a,R||r||U||u||Q||q||P||p||I||i||COS_F||cos_f} - upper - supported, lower - not supported, '+' - to a consumer, '-' - from a consumer
      *
      * YY3RA+A-R+R-
      */
     if(!isPollCodeSupported(code))
         return QStringList();
+    QStringList enrgs;
+
+    const QString enrgpartofversion = version.mid(4);
+
 
     if(code == POLL_CODE_READ_VOLTAGE){
-        return version.mid(2,1).startsWith("1") ? QString("PA,IA,UA,cos_fA,F").split(',') :
-                                                   QString("UA,UB,UC,IA,IB,IC,PA,PB,PC,QA,QB,QC,cos_fA,cos_fB,cos_fC,F").split(',');
-    }
-    const QStringList lk = QString("A+;A-;R+;R-").split(";");
-    const QStringList le = QString("A+,A-,R+,R-").split(",");
+//        lk = isSinglePhase(version) ? QString("PA,IA,UA,cos_fA,F").split(',') :
+//                                                   QString("UA,UB,UC,IA,IB,IC,PA,PB,PC,QA,QB,QC,cos_fA,cos_fB,cos_fC,F").split(',');
 
-    QStringList enrgs;
-    const QString enrgpartofversion = version.mid(4);
-    for(int i = 0, imax = lk.size(); i < imax; i++){
-        if(enrgpartofversion.isEmpty() || !enrgpartofversion.contains(lk.at(i).toLower()))//ai - does not support A-
-            enrgs.append(le.at(i));
+        const QStringList lk = QString("U,I,P,Q,cos_f").split(",");
+        const QStringList phaselist = QString(isSinglePhase(version) ? "A" : "A;B;C").split(";");
+
+
+        for(int i = 0, imax = lk.size(), jmax = phaselist.size(); i < imax; i++){
+            if(enrgpartofversion.isEmpty() || !enrgpartofversion.contains(lk.at(i).toLower())){//ai - does not support A-
+//                if(lk.at(i) == "F"){
+//                    enrgs.append(lk.at(i));
+//                }else{
+                    for(int j = 0; j < jmax; j++)
+                        enrgs.append(lk.at(i) + phaselist.at(j));
+//                }
+            }
+        }
+    }else{
+        const QStringList lk = QString("A+;A-;R+;R-").split(";");
+        for(int i = 0, imax = lk.size(); i < imax; i++){
+            if(enrgpartofversion.isEmpty() || !enrgpartofversion.contains(lk.at(i).toLower()))//ai - does not support A-
+                enrgs.append(lk.at(i));
+
+        }
+        if(!enrgs.contains("A+"))
+            enrgs.prepend("A+");//I think all electricity meters can mesure A+
+
 
     }
-    if(!enrgs.contains("A+"))
-        enrgs.prepend("A+");//I think all electricity meters can mesure A+
+
+
+     if(code == POLL_CODE_READ_VOLTAGE){
+         //everything can be
+
+     }else{//it can't be
+         if(!enrgs.contains("A+"))
+             enrgs.prepend("A+");//I think all electricity meters can mesure A+
+     }
 
     return enrgs;
 
@@ -170,6 +236,13 @@ bool DT645EncoderDecoder::isPollCodeSupported(const quint16 &pollCode)
 bool DT645EncoderDecoder::is1997version(const QString &version)
 {
     return (version.isEmpty() || version.startsWith("97"));
+}
+
+//-----------------------------------------------------------------------------
+
+bool DT645EncoderDecoder::isSinglePhase(const QString &version)
+{
+    return (!version.isEmpty() && version.mid(2,1).startsWith("1"));
 }
 
 //-----------------------------------------------------------------------------
@@ -208,6 +281,12 @@ bool DT645EncoderDecoder::hasNoData(const quint32 &errcode)
 {
     return getBitarrFromAbyteERR(errcode).at(1);
 }
+
+bool DT645EncoderDecoder::hasWrongPassword(const quint32 &errcode)
+{
+    return getBitarrFromAbyteERR(errcode).at(2);
+
+}
 //-----------------------------------------------------------------------------
 
 QString DT645EncoderDecoder::calcMeterAddr(const QString &meterSn)
@@ -245,11 +324,11 @@ QByteArray DT645EncoderDecoder::createAmessage(const QByteArray &ni, const quint
 
     message.append(arrRotateExt(command, 4, 0x33));
     if(!payload.isEmpty())
-    message.append(arr2bcd(payload));
+        message.append(addAbyte(arr2bcd(payload), 0x33));//just add, payload should be rotated before
     message.append(calcByteModulo(message));
     message.append(DLT645_END_FRAME);
 
-    for(int i = 0; i < 3; i++)
+    for(int i = 0; i < 4; i++)
         message.prepend(DLT645_WAKE_UP_BYTE);
 
 
@@ -280,6 +359,23 @@ QByteArray DT645EncoderDecoder::calcByteModulo(const QByteArray &messagepart)
 
 //-----------------------------------------------------------------------------
 
+QByteArray DT645EncoderDecoder::meterNiFromConstHash(const QVariantHash &hashConstData)
+{
+    return (hashConstData.value("hardAddrsn", false).toBool()) ? hashConstData.value("NI").toByteArray() : QByteArray();
+}
+
+//-----------------------------------------------------------------------------
+
+QByteArray DT645EncoderDecoder::meterPasswordFromConstHash(const QVariantHash &hashConstData)
+{
+    QByteArray passwd = hashConstData.value("passwd").toByteArray();
+    if(passwd.isEmpty())
+        passwd = getDefPasswd();
+    return passwd;
+}
+
+//-----------------------------------------------------------------------------
+
 QByteArray DT645EncoderDecoder::getReadMessage(const QByteArray &ni, const quint16 &command)
 {
     return createAmessage(ni, DLT645_CNTR_MASTER_READ_DATA, command, QByteArray());
@@ -289,9 +385,23 @@ QByteArray DT645EncoderDecoder::getReadMessage(const QByteArray &ni, const quint
 
 QByteArray DT645EncoderDecoder::getReadMessage(const QVariantHash &hashConstData, const quint16 &command)
 {
-    return createAmessage((hashConstData.value("hardAddrsn", false).toBool()) ? hashConstData.value("NI").toByteArray() : QByteArray(),
-                          DLT645_CNTR_MASTER_READ_DATA, command, QByteArray());
+    return getReadMessage(meterNiFromConstHash(hashConstData), command);
 
+}
+
+//-----------------------------------------------------------------------------
+
+QByteArray DT645EncoderDecoder::getWriteMessage(const QByteArray &ni, const quint16 &command, const QByteArray &password, const QByteArray &writedatahex)
+{
+
+    return createAmessage(ni, DLT645_CNTR_MASTER_WRITE_DATA, command, QByteArray::fromHex(password) + arrRotate(QByteArray::fromHex(writedatahex)));
+}
+
+//-----------------------------------------------------------------------------
+
+QByteArray DT645EncoderDecoder::getWriteMessage(const QVariantHash &hashConstData, const quint16 &command, const QByteArray &writedatahex)
+{
+    return getWriteMessage(meterNiFromConstHash(hashConstData), command, meterPasswordFromConstHash(hashConstData), writedatahex);
 }
 
 //-----------------------------------------------------------------------------
@@ -354,7 +464,7 @@ bool DT645EncoderDecoder::checkMessageBytes(const QByteArray &readArr, const QBy
     controlbyte = controlbyte << 3;
     controlbyte = controlbyte >> 3;
 
-    if(controlbyte != DLT645_CNTR_MASTER_READ_DATA){
+    if(controlbyte != DLT645_CNTR_MASTER_READ_DATA && controlbyte != DLT645_CNTR_MASTER_WRITE_DATA){
         errstr = QString("bad control byte 0x%1").arg(QString::number(controlbyte, 16));
         return false;
     }
@@ -485,12 +595,12 @@ Mess2meterRezult DT645EncoderDecoder::mess2meter(const Mess2meterArgs &pairAbout
     if(!go2exit){
         switch (pollCode) {
 //      case POLL_CODE_READ_METER_LOGBOOK   : hashMessage = preparyMeterJournal(hashConstData, hashTmpData, step); break; is not supported
-        case POLL_CODE_READ_VOLTAGE         : hashMessage = preparyVoltage(hashConstData, hashTmpData, step)     ; break;
-        case POLL_CODE_READ_POWER           : hashMessage = preparyPower(hashConstData, hashTmpData, step)       ; break;
+        case POLL_CODE_READ_VOLTAGE         : hashMessage = preparyVoltage(hashConstData, hashTmpData)          ; break;
+        case POLL_CODE_READ_POWER           : hashMessage = preparyPower(hashConstData, hashTmpData, step)      ; break;
         case POLL_CODE_READ_TOTAL           : hashMessage = preparyTotalEnrg(hashConstData, hashTmpData)        ; break;
-//      case POLL_CODE_READ_END_DAY         : hashMessage = preparyEoD(hashConstData, hashTmpData, step)         ; break; is not supported
-        case POLL_CODE_READ_END_MONTH       : hashMessage = preparyEoM(hashConstData, hashTmpData,  step)        ; break;
-        default:{ if(verboseMode) qDebug() << "DLT645 pollCode is not supported 1" << pollCode                 ; break;}
+//      case POLL_CODE_READ_END_DAY         : hashMessage = preparyEoD(hashConstData, hashTmpData, step)        ; break; is not supported
+        case POLL_CODE_READ_END_MONTH       : hashMessage = preparyEoM(hashConstData, hashTmpData,  step)       ; break;
+        default:{ if(verboseMode) qDebug() << "DLT645 pollCode is not supported 1" << pollCode                  ; break;}
         }
         if(hashMessage.isEmpty())
             step = 0xFFFF;
@@ -602,12 +712,196 @@ QVariantHash DT645EncoderDecoder::decodeMeterData(const DecodeMeterMess &threeHa
     //const QList<quint8> &listMeterMess, const quint32 &commandCode, const quint8 &errCode, const QVariantHash &hashConstData, const QVariantHash &hashTmpData, quint16 &step, ErrCounters &warnerr
     switch(pollCode){
 //  case POLL_CODE_READ_METER_LOGBOOK   : decodehash = fullMeterJrnl(decoderesult, hashConstData, hashTmpData, step, errwarns); break;
-    case POLL_CODE_READ_VOLTAGE         : decodehash = fullVoltage(  decoderesult, hashConstData, hashTmpData, step, errwarns); break;
+    case POLL_CODE_READ_VOLTAGE         : decodehash = fullVoltage(  decoderesult, hashTmpData, step, errwarns); break;
     case POLL_CODE_READ_POWER           : decodehash = fullPower(    decoderesult, hashConstData, hashTmpData, step, errwarns); break;
-    case POLL_CODE_READ_TOTAL           : decodehash = fullTotalEnrg(decoderesult, hashConstData, hashTmpData, step, errwarns); break;
+    case POLL_CODE_READ_TOTAL           : decodehash = fullTotalEnrg(decoderesult, hashConstData, hashTmpData, errwarns); break;
 //  case POLL_CODE_READ_END_DAY         : decodehash = fullEoD(      decoderesult, hashConstData, hashTmpData, step, errwarns); break;
     case POLL_CODE_READ_END_MONTH       : decodehash = fullEoM(      decoderesult, hashConstData, hashTmpData, step, errwarns); break;
     }
+
+
+    return decodeEnd(decodehash, errwarns, step, hashTmpData);
+}
+
+//-----------------------------------------------------------------------------
+
+Mess2meterRezult DT645EncoderDecoder::messParamPamPam(const Mess2meterArgs &pairAboutMeter)
+{
+    const QVariantHash hashConstData = pairAboutMeter.hashConstData;
+    QVariantHash hashTmpData = pairAboutMeter.hashTmpData;
+    QVariantHash hashMessage;
+
+
+    const quint8 pollCode = hashConstData.value("pollCode").toUInt();
+
+    quint16 step = hashTmpData.value("step", (quint16)0).toUInt();
+
+    if(verboseMode) qDebug() << "mess2Meter " << step << pollCode ;
+
+    switch(pollCode){
+
+    case POLL_CODE_READ_DATE_TIME_DST   :{
+        if(step < 1)
+            step = 1;
+        switch(step){
+        case 1  : hashMessage.insert("message_0", getReadMessage(hashConstData, DLT645_DATE))       ; break; //read date
+        case 2  : hashMessage.insert("message_0", getReadMessage(hashConstData, DLT645_TIME))       ; hashTmpData.insert("DLT_timesend", QDateTime::currentDateTimeUtc()); break; //read time
+        default : hashMessage.insert("message_0", getReadMessage(hashConstData, DLT645_METER_SN))   ; step = 0; break;//read S/N
+        }
+        break;}//       52
+
+    case POLL_CODE_WRITE_DATE_TIME      :{
+
+        const QDateTime currdt = QDateTime::currentDateTime().addSecs(3);
+        switch(step){
+        case 1  : hashMessage.insert("message_0", getWriteMessage(hashConstData, DLT645_TIME, currdt.toString("hhmmss").toLocal8Bit()) ); break; //write time
+        case 2  : hashMessage.insert("message_0", getReadMessage(hashConstData, DLT645_DATE))       ; break; //read date
+        case 3  : hashMessage.insert("message_0", getReadMessage(hashConstData, DLT645_TIME))       ; hashTmpData.insert("DLT_timesend", QDateTime::currentDateTimeUtc()); break; //read time
+        default : hashMessage.insert("message_0", getWriteMessage(hashConstData, DLT645_DATE, QString(currdt.toString("yyMMdd") + "0" + QString::number(currdt.date().dayOfWeek())).toLocal8Bit()))   ; step = 0; break;//write date
+        }
+        break;}//           53
+
+    default:{
+        hashTmpData.insert("notsup", true);
+//        hashTmpData.insert("notsupasdone", true);
+        step = 0xFFFF;
+        break;}
+    }
+
+
+    hashTmpData.insert("step", step);
+    if(hashTmpData.value("step").toInt() >= 0xFFFE)
+        hashMessage.clear();
+    else
+        insertDefaultHashMessageValues(hashMessage);
+
+    return Mess2meterRezult(hashMessage,hashTmpData);
+}
+
+//-----------------------------------------------------------------------------
+
+QVariantHash DT645EncoderDecoder::decodeParamPamPam(const DecodeMeterMess &threeHash)
+{
+    const QVariantHash hashConstData = threeHash.hashConstData;
+    const QVariantHash hashRead = threeHash.hashRead;
+    QVariantHash hashTmpData = threeHash.hashTmpData;
+
+
+    if(verboseMode){
+        foreach (QString key, hashRead.keys()) {
+            qDebug() << "DLT read "  << key << hashRead.value(key).toByteArray().toHex().toUpper();
+        }
+    }
+
+    hashTmpData.insert("messFail", true);
+    quint8 pollCode         = hashConstData.value("pollCode").toUInt();
+    quint16 step            = hashTmpData.value("step", (quint16)0).toUInt();
+    ErrCounters errwarns   = ErrCounters(qMax(0, hashTmpData.value("warning_counter", 0).toInt()), qMax(0, hashTmpData.value("error_counter", 0).toInt()));
+
+    const MessageValidatorResult decoderesult = messageIsValid(hashRead.value("readArr_0").toByteArray(), lastAddr);
+    if(!decoderesult.isValid){
+        QString warn;
+        QString err = decoderesult.errstr;
+        hashTmpData.insert(MeterPluginHelper::errWarnKey(errwarns.error_counter, true), MeterPluginHelper::prettyMess(tr("incomming data is invalid"),
+                                                                                                             PrettyValues::prettyHexDump( hashRead.value("readArr_0").toByteArray().toHex(), "", 0)
+                                                                                                             , err, warn, true));
+        pollCode = 0;
+    }else{
+        if(hashTmpData.value("vrsn").toString().isEmpty())
+            hashTmpData.insert("vrsn",lastWas1997format ? "97__" : "07__");//phase and relay unknown count
+
+    }
+
+
+    QVariantHash decodehash;
+
+
+    switch(pollCode){
+
+    case POLL_CODE_READ_DATE_TIME_DST   :{
+        bool result = false;
+        bool getDtAgain = false;
+        bool stopPoll = false;//it is unused here
+
+        if(step < 0)
+            step = 1;
+        switch(step){
+        case 1  : result = decodeMeterDate(decoderesult, hashTmpData); break; //read date
+        case 2  : result = decodeMeterTime(decoderesult, hashConstData, hashTmpData, errwarns, getDtAgain, stopPoll ); break;//read time
+        default : result = decodeMeterSN(decoderesult, hashTmpData); step = 0; break;//read S/N
+        }
+        if(result){
+
+            hashTmpData.insert("messFail", false);
+            hashTmpData.insert("DST_Profile", false);//The protocol is from China, there is no DST there
+
+            if(getDtAgain){
+                step = 1;
+            }else{
+                step++;
+                if(step > 2)
+                    step = 0xFFFF;//go to the exit
+            }
+
+
+        }
+
+        break;}//       52
+
+    case POLL_CODE_WRITE_DATE_TIME      :{
+
+        bool result = false;
+        bool getDtAgain = false;
+        bool stopPoll = false;//it is unused here
+
+        bool isPasswordBad = false;
+
+        switch(step){
+        case 1  :  result = isWriteGood(decoderesult, hashTmpData, errwarns, isPasswordBad);  break;//read S/N
+        case 2  : result = decodeMeterDate(decoderesult, hashTmpData); break; //read date
+        case 3  : result = decodeMeterTime(decoderesult, hashConstData, hashTmpData, errwarns, getDtAgain, stopPoll ); break;//read time
+        default : result = isWriteGood(decoderesult, hashTmpData, errwarns, isPasswordBad); step = 0; break;//read S/N
+        }
+
+        if(isPasswordBad){
+            hashTmpData.insert("messFail", false);
+            step = 0xFFFF;
+            break;
+        }
+
+        if(result){
+
+            hashTmpData.insert("messFail", false);
+            hashTmpData.insert("DST_Profile", false);//The protocol is from China, there is no DST there
+
+            if(getDtAgain){
+                step = 2;
+            }else{
+                step++;
+                if(step > 3)
+                    step = 0xFFFF;//go to the exit
+            }
+
+
+        }
+
+
+        break;}//           53
+
+    default:{
+        hashTmpData.insert("notsup", true);
+//        hashTmpData.insert("notsupasdone", true);
+        hashTmpData.insert("step", 0xFFFF);
+        break;}
+    }
+    return decodeEnd(decodehash, errwarns, step, hashTmpData);
+
+}
+
+//-----------------------------------------------------------------------------
+
+QVariantHash DT645EncoderDecoder::decodeEnd(const QVariantHash &decodehash, const ErrCounters &errwarns, quint16 &step, QVariantHash &hashTmpData)
+{
 
     if(!decodehash.isEmpty()){
         MeterPluginHelper::copyHash2hash(decodehash, hashTmpData);
@@ -632,6 +926,26 @@ QVariantHash DT645EncoderDecoder::decodeMeterData(const DecodeMeterMess &threeHa
     hashTmpData.insert("warning_counter", errwarns.warning_counter);
 
     return hashTmpData;
+}
+
+//-----------------------------------------------------------------------------
+
+bool DT645EncoderDecoder::isWriteGood(const DT645EncoderDecoder::MessageValidatorResult &decoderesult, QVariantHash &hashTmpData, ErrCounters &errwarns, bool &isPasswordBad)
+{
+    isPasswordBad = false;
+     if( decoderesult.errCode != DLT645_HAS_NO_ERRORS){
+
+
+         //const QString &mess, const QString &hexDump, const bool &isErr, ErrsStrct &errwarn)
+         hashTmpData.insert(MeterPluginHelper::errWarnKey(errwarns.error_counter, true), MeterPluginHelper::prettyMess(tr("Write operation was failed"), "", true, lasterrwarn));
+
+         if(hasWrongPassword(decoderesult.commandCode)){
+             isPasswordBad = true;
+             hashTmpData.insert(MeterPluginHelper::errWarnKey(errwarns.error_counter, true), MeterPluginHelper::prettyMess(tr("Password is wrong"), "", true, lasterrwarn));
+         }
+         return false;
+     }
+     return true;
 }
 
 //-----------------------------------------------------------------------------
@@ -730,20 +1044,155 @@ bool DT645EncoderDecoder::decodeMeterTime(const DT645EncoderDecoder::MessageVali
 
 //-----------------------------------------------------------------------------
 
-QVariantHash DT645EncoderDecoder::preparyVoltage(const QVariantHash &hashConstData, QVariantHash &hashTmpData, quint16 &step)
+quint8 DT645EncoderDecoder::getValidDltStep(const quint8 &startFrom, const QString &version, QStringList &unsupportedKeys)
+{
+    quint8 dltStep = startFrom;
+    if(dltStep > 0){
+
+        const QStringList l = getSupportedEnrg(POLL_CODE_READ_VOLTAGE, version);
+        for(int i = startFrom; i < 16; i++){
+            const VolateMessageParam enrgsett = getCommandAndEnrgLetter4dltStep(dltStep);
+            if(enrgsett.enrgkey.isEmpty())
+                return 15;//break all ;
+
+            if(l.contains(enrgsett.enrgkey)){
+                return dltStep;
+            }
+            unsupportedKeys.append(enrgsett.enrgkey);
+            dltStep++;
+        }
+    }
+    return startFrom;
+}
+
+//-----------------------------------------------------------------------------
+
+QVariantHash DT645EncoderDecoder::preparyVoltageResultHash(QVariantHash &resulthash, quint8 &dltStep, quint16 &step)
+{
+    QStringList unsupp;
+    dltStep = getValidDltStep(dltStep+1, resulthash.value("vrsn").toString(), unsupp);
+    if(dltStep > 14)
+        step = 0xFFFF;
+
+    for(int i = 0, imax = unsupp.size(); i < imax; i++)
+        resulthash.insert(unsupp.at(i), "!");
+    resulthash.insert("F", "!");
+    resulthash.insert("messFail", false);//go to the next energy
+    resulthash.insert("DLT_step", dltStep);
+
+
+    return resulthash;
+}
+
+//-----------------------------------------------------------------------------
+
+DT645EncoderDecoder::VolateMessageParam DT645EncoderDecoder::getCommandAndEnrgLetter4dltStep(const quint8 &dltStep)
+{
+    quint16 messagecommand = 0;
+    QString enrgletter;
+    qreal multiplication = 1.0;
+    switch(dltStep){
+    case  0: messagecommand = DLT645_VOLTAGE_A       ; enrgletter = "UA"    ; multiplication = 1.0  ; break;//         0xB611
+    case  1: messagecommand = DLT645_VOLTAGE_B       ; enrgletter = "UB"    ; multiplication = 1.0  ; break;//         0xB612
+    case  2: messagecommand = DLT645_VOLTAGE_C       ; enrgletter = "UC"    ; multiplication = 1.0  ; break;//         0xB613
+
+    case  3: messagecommand = DLT645_CURRENT_A       ; enrgletter = "IA"    ; multiplication = 0.01 ; break;//        0xB621
+    case  4: messagecommand = DLT645_CURRENT_B       ; enrgletter = "IB"    ; multiplication = 0.01 ; break;//        0xB622
+    case  5: messagecommand = DLT645_CURRENT_C       ; enrgletter = "IC"    ; multiplication = 0.01 ; break;//        0xB623
+
+    case  6: messagecommand = DLT645_POWER_ACTIVE_A  ; enrgletter = "PA"    ; multiplication = 0.0001 ; break;//        0xB631
+    case  7: messagecommand = DLT645_POWER_ACTIVE_B  ; enrgletter = "PB"    ; multiplication = 0.0001 ; break;//        0xB632
+    case  8: messagecommand = DLT645_POWER_ACTIVE_C  ; enrgletter = "PC"    ; multiplication = 0.0001 ; break;//        0xB633
+
+        //reactive power has my own multiplication, because the one from the document is wrong
+    case  9: messagecommand = DLT645_POWER_REACTIVE_A; enrgletter = "QA"    ; multiplication = 0.0001 ; break;//       0xB641
+    case 10: messagecommand = DLT645_POWER_REACTIVE_B; enrgletter = "QB"    ; multiplication = 0.0001 ; break;//       0xB642
+    case 11: messagecommand = DLT645_POWER_REACTIVE_C; enrgletter = "QC"    ; multiplication = 0.0001 ; break;//       0xB643
+
+    case 12: messagecommand = DLT645_POWER_FACTOR_A  ; enrgletter = "cos_fA"; multiplication = 0.001; break;//       0xB651
+    case 13: messagecommand = DLT645_POWER_FACTOR_B  ; enrgletter = "cos_fB"; multiplication = 0.001; break;//       0xB652
+    case 14: messagecommand = DLT645_POWER_FACTOR_C  ; enrgletter = "cos_fC"; multiplication = 0.001; break;//       0xB653
+//    default: messagecommand = DLT645_VOLTAGE_A; enrgletter = "UA"; break;//
+    }
+    VolateMessageParam param;
+    param.command = messagecommand;
+    param.enrgkey = enrgletter;
+    param.multiplication = multiplication;
+    return param;
+}
+
+
+//-----------------------------------------------------------------------------
+
+QVariantHash DT645EncoderDecoder::preparyVoltage(const QVariantHash &hashConstData, QVariantHash &hashTmpData)
 {
     QVariantHash hashMessage;
+
+    QStringList unsupp;
+    const quint8 dltStep = getValidDltStep( hashTmpData.value("DLT_step", 0).toUInt(), hashTmpData.value("vrsn").toString(), unsupp);
+    const quint16 messagecommand = getCommandAndEnrgLetter4dltStep(dltStep).command;
+
+     if(messagecommand > 0){
+         hashMessage.insert("message_0", getReadMessage(hashConstData,messagecommand));
+     }
 
     return hashMessage;
 }
 
 //-----------------------------------------------------------------------------
 
-QVariantHash DT645EncoderDecoder::fullVoltage(const MessageValidatorResult &decoderesult, const QVariantHash &hashConstData, const QVariantHash &hashTmpData, quint16 &step, ErrCounters &warnerr)
+QVariantHash DT645EncoderDecoder::fullVoltage(const MessageValidatorResult &decoderesult, const QVariantHash &hashTmpData, quint16 &step, ErrCounters &warnerr)
 {
     QVariantHash resulthash;
-    resulthash.insert("messFail", true);
-    return resulthash;
+
+    quint8 dltStep = hashTmpData.value("DLT_step", 0).toUInt();
+
+    const VolateMessageParam voltaparam = getCommandAndEnrgLetter4dltStep(dltStep);
+    QString currEnrgLetter = voltaparam.enrgkey;
+    currEnrgLetter.chop(1);
+
+    const QString vrsn = hashTmpData.value("vrsn").toString();
+    if(decoderesult.listMeterMess.isEmpty() || decoderesult.errCode != DLT645_HAS_NO_ERRORS){
+        if(hasNoData(decoderesult.commandCode)){ //add something 2 vrsn
+//            insertNotSupValues2hash("", energyletter, trff, resulthash);
+            const QStringList phases = QString("A;B;C").split(";");
+            const int startFrom = dltStep%3;
+            for(int i = startFrom, imax = phases.size(); i < imax; i++)
+                resulthash.insert(QString("%1%2").arg(currEnrgLetter).arg(phases.at(i)), "!");
+
+
+
+            if(startFrom == 0)//energy is not supp
+                resulthash.insert("vrsn", enableDisableTheEnergyKey(vrsn, currEnrgLetter, false));
+            else if(!isSinglePhase(vrsn))
+                resulthash.insert("vrsn", setMeterPhaseCount(vrsn, true));//mark as a single phase meter
+
+
+            return preparyVoltageResultHash(resulthash, dltStep, step);
+
+
+        }
+        return resulthash;
+
+    }
+
+    if((dltStep%3) == 0)//can't determine phase count
+        resulthash.insert("vrsn", enableDisableTheEnergyKey(vrsn, currEnrgLetter, true));
+    else
+        resulthash.insert("vrsn", setMeterPhaseCount(vrsn, false));//mark as a 3 phase meter
+
+
+    const QString valstr = bcdList2normal(decoderesult.listMeterMess);
+    bool ok;
+    const qreal valreal = valstr.toDouble(&ok) * voltaparam.multiplication;
+
+    if(!ok){
+        return resulthash;
+    }
+    const QString valStr = PrettyValues::prettyNumber(valreal, 4, 4);
+    resulthash.insert(voltaparam.enrgkey, valStr);
+
+   return preparyVoltageResultHash(resulthash, dltStep, step);
 }
 
 //-----------------------------------------------------------------------------
@@ -762,6 +1211,36 @@ QVariantHash DT645EncoderDecoder::fullPower(const MessageValidatorResult &decode
     QVariantHash resulthash;
     resulthash.insert("messFail", true);
     return resulthash;
+
+}
+
+//-----------------------------------------------------------------------------
+
+void DT645EncoderDecoder::preparyTariffResultHash(const QString &prefics, const QList<quint8> &listMeterMess, const QVariantHash &hashTmpData, const int &trff, const QString &energyletter, QVariantHash &resulthash)
+{
+
+    const QString fullprefics = prefics.isEmpty() ? QString() : QString("%1_").arg(prefics);
+
+    //from the maximum tariff to the lowerest
+    QStringList tariffdata;
+    for(int i = 0, imax = listMeterMess.size(), t = 0; i < imax ; i += 4, t++){
+        const QString kwhstr = bcdList2normal(listMeterMess.mid(i,4));
+        bool ok;
+        const qreal kwhreal = kwhstr.toDouble(&ok) * 0.01;
+
+        if(!ok)
+            return ;
+
+        const QString valStr = PrettyValues::prettyNumber(kwhreal, 2, 2);
+
+        tariffdata.prepend(valStr);
+    }
+
+    for(int i = 0, imax = tariffdata.size(); i < imax && i <= trff; i++)
+        resulthash.insert(QString("%1T%2_%3").arg(fullprefics).arg(i).arg(energyletter), tariffdata.at(i));
+
+    resulthash.insert("messFail", false);//go to the next energy
+    resulthash.insert("currEnrg", hashTmpData.value("DLT_currEnrg"));
 
 }
 
@@ -814,7 +1293,7 @@ QVariantHash DT645EncoderDecoder::preparyTotalEnrg(const QVariantHash &hashConst
 
 //-----------------------------------------------------------------------------
 
-QVariantHash DT645EncoderDecoder::fullTotalEnrg(const MessageValidatorResult &decoderesult, const QVariantHash &hashConstData, const QVariantHash &hashTmpData, quint16 &step, ErrCounters &warnerr)
+QVariantHash DT645EncoderDecoder::fullTotalEnrg(const MessageValidatorResult &decoderesult, const QVariantHash &hashConstData, const QVariantHash &hashTmpData, ErrCounters &warnerr)
 {
   QVariantHash resulthash;
 
@@ -828,36 +1307,60 @@ QVariantHash DT645EncoderDecoder::fullTotalEnrg(const MessageValidatorResult &de
 
           resulthash.insert("messFail", false);//go to the next energy
           resulthash.insert("currEnrg", hashTmpData.value("DLT_currEnrg"));
-
-
           return resulthash;
       }
   }
   resulthash.insert("vrsn", enableDisableTheEnergyKey(hashTmpData.value("vrsn").toString(), hashTmpData.value("DLT_currEnrgLetter").toString(), true));
-//from the maximum tariff to the lowerest
-  QStringList tariffdata;
-  for(int i = 0, imax = decoderesult.listMeterMess.size(), t = 0; i < imax ; i += 4, t++){
-      const QString kwhstr = bcdList2normal(decoderesult.listMeterMess.mid(i,4));
-      bool ok;
-      const qreal kwhreal = kwhstr.toDouble(&ok) * 0.01;
-
-      if(!ok){
-
-          return resulthash;
-      }
-      const QString valStr = PrettyValues::prettyNumber(kwhreal, 2, 2);
-
-      tariffdata.prepend(valStr);
-  }
-
-  for(int i = 0, imax = tariffdata.size(); i < imax && i <= trff; i++)
-      resulthash.insert(QString("T%1_%2").arg(i).arg(energyletter), tariffdata.at(i));
-
-
-  resulthash.insert("messFail", false);//go to the next energy
-  resulthash.insert("currEnrg", hashTmpData.value("DLT_currEnrg"));
-
+  preparyTariffResultHash("", decoderesult.listMeterMess, hashTmpData, trff, energyletter, resulthash);
   return resulthash;
+
+}
+
+//-----------------------------------------------------------------------------
+
+bool DT645EncoderDecoder::closeUnsuppEoMintervals(const QVariantHash &hashConstData, QVariantHash &hashTmpData)
+{
+
+    hashTmpData.insert("pollDate_0", hashConstData.value("pollDate_0").toDateTime());
+    int monthIndx = hashTmpData.value("monthIndx",0).toInt();
+    const QDateTime dtPoll = hashConstData.value("pollDate").toDateTime();
+    QDateTime dtPollIndx = hashConstData.value(QString("pollDate_%1").arg(monthIndx), dtPoll).toDateTime();
+
+//    const QStringList listEnrg = hashConstData.value("listEnrg").toStringList();
+//    const QStringList getSuppEnrg = getSupportedEnrg(POLL_CODE_READ_END_MONTH, hashTmpData.value("vrsn").toString());
+
+    const QString supported_yyyyMM = QDate::currentDate().addMonths(-1).toString("yyyyMM");
+
+    bool hasSuppInterval = false;
+    QStringList warnMess;
+
+    for( ; monthIndx < MAX_GLYBYNA; ){
+
+        if(warnMess.isEmpty())
+            warnMess.append(tr("EOM: ignore date:"));
+        warnMess.append(QString(" %1,").arg(dtPollIndx.toString("yyyy-MM")));
+
+        monthIndx++;
+        if(!hashConstData.contains(QString("pollDate_%1").arg(QString::number( monthIndx)))){
+            monthIndx = MAX_GLYBYNA;
+            break;
+        }
+        dtPollIndx = hashConstData.value(QString("pollDate_%1").arg(QString::number( monthIndx)), dtPoll).toDateTime();
+
+        if(dtPollIndx.toString("yyyyMM") == supported_yyyyMM){
+            hashTmpData.insert("monthIndx", monthIndx);
+            hasSuppInterval = true;
+            break;//it is supported interval
+        }
+
+    }
+
+    if(!warnMess.isEmpty()){
+        int warning_counter = hashTmpData.value("warning_counter").toInt();
+        hashTmpData.insert(  MeterPluginHelper::errWarnKey(warning_counter, false), warnMess.join("\n"));
+        hashTmpData.insert("warning_counter", warning_counter);
+    }
+    return hasSuppInterval;
 
 }
 
@@ -866,6 +1369,82 @@ QVariantHash DT645EncoderDecoder::fullTotalEnrg(const MessageValidatorResult &de
 QVariantHash DT645EncoderDecoder::preparyEoM(const QVariantHash &hashConstData, QVariantHash &hashTmpData, quint16 &step)
 {
     QVariantHash hashMessage;
+
+    bool ok;
+    qint32 monthAgo = MeterPluginHelper::calculateMonthAgo(hashConstData.value("pollDate").toDateTime(), ok);//  //QByteArray::number(hashTmpData.value("NIK_daysAgo", 0).toUInt(), 16);
+
+    if(!ok || monthAgo > 1){
+        step = 0xFFFF;
+        if(verboseMode) qDebug() << "date is invalid " << hashConstData.value("pollDate") <<hashConstData.value("pollDate").toDateTime() << "end_month " ;
+        return hashMessage;
+    }
+    if(!hashTmpData.value("DLT_enriesAreClosed").toBool()){
+        //close not supported intervals
+        closeUnsuppEoMintervals(hashConstData, hashTmpData);
+        hashTmpData.insert("DLT_enriesAreClosed", true);
+
+    }
+    const int monthIndx = hashTmpData.value("monthIndx",0).toInt();
+    const QDateTime lastMonthDt = hashConstData.value(QString("pollDate_%1").arg(monthIndx)).toDateTime();
+    const QString lastMonthDtStr = QString("%1_%2").arg(lastMonthDt.toString("yyyy_MM")).arg(lastMonthDt.date().daysInMonth());
+
+
+    const QString version = hashTmpData.value("vrsn").toString();
+    const int trff = hashConstData.value("trff", DEF_TARIFF_NUMB).toInt();
+
+    int currEnrg = qMax(0, hashTmpData.value("currEnrg", 0).toInt());
+    const QStringList listPlgEnrg = getSupportedEnrg(POLL_CODE_READ_END_MONTH, version);
+
+    const QStringList energies = QString("A+;A-;R+;R-").split(";");
+    const QStringList listEnrg = hashConstData.value("listEnrg").toStringList();
+
+    quint32 messagecommand = 0;
+    QString enrgletter;
+
+
+
+
+    for(int imax = energies.size(); currEnrg < imax ; currEnrg++){
+        const QString energy = energies.at(currEnrg);
+        if(!listPlgEnrg.contains(energy) || !listEnrg.contains(energy))
+            continue;
+
+        if(messagecommand < 1){
+
+            bool hasEmpty = false;
+            for(int t = 0; t <= trff && !hasEmpty; t++){
+                const QString valStr = hashTmpData.value(QString("%1_23_59_T%2_%3").arg(lastMonthDtStr).arg(t).arg(energy)).toString();
+                hasEmpty = (valStr.isEmpty() || valStr == "?" ||
+                            (valStr == "!" && hashConstData.value("vrsn").toString().isEmpty()) || (valStr == "-" && lastMonthDt.daysTo(QDateTime::currentDateTime()) >= 0 && lastMonthDt.daysTo(QDateTime::currentDateTime()) < 2 ));
+
+            }
+
+            if(!hasEmpty)
+                continue;
+
+            switch(currEnrg){
+            case 0: messagecommand = DLT645_EOF_MONTH_A_POSITIVE; break;
+            case 1: messagecommand = DLT645_EOF_MONTH_A_REVERSE ; break;
+            case 2: messagecommand = DLT645_EOF_MONTH_R_POSITIVE; break;
+            case 3: messagecommand = DLT645_EOF_MONTH_R_REVERSE ; break;
+            }
+            enrgletter = energy;
+        }else{
+            break;//to get the next index
+        }
+    }
+
+    if(messagecommand > 0){
+        hashTmpData.insert("DLT_currEnrgLetter", enrgletter);
+        hashTmpData.insert("DLT_currEnrg", currEnrg);
+
+        hashMessage.insert("message_0", getReadMessage(hashConstData,messagecommand));
+    }else{
+        hashTmpData.insert("currEnrg", currEnrg);
+    }
+
+
+
  return hashMessage;
 }
 
@@ -874,7 +1453,33 @@ QVariantHash DT645EncoderDecoder::preparyEoM(const QVariantHash &hashConstData, 
 QVariantHash DT645EncoderDecoder::fullEoM(const MessageValidatorResult &decoderesult, const QVariantHash &hashConstData, const QVariantHash &hashTmpData, quint16 &step, ErrCounters &warnerr)
 {
     QVariantHash resulthash;
-    resulthash.insert("messFail", true);
+
+    const int monthIndx = hashTmpData.value("monthIndx",0).toInt();
+    const QDateTime lastMonthDt = hashConstData.value(QString("pollDate_%1").arg(monthIndx)).toDateTime();
+    const QString lastMonthDtStr = QString("%1_%2_23_59").arg(lastMonthDt.toString("yyyy_MM")).arg(lastMonthDt.date().daysInMonth());
+
+    QStringList listDate = hashTmpData.value("listDate").toStringList();
+    if(listDate.isEmpty()){
+        listDate.append(lastMonthDtStr);
+        resulthash.insert("listDate", listDate);
+    }
+
+
+    const int trff = hashConstData.value("trff", DEF_TARIFF_NUMB).toInt();
+    const QString energyletter = hashTmpData.value("DLT_currEnrgLetter").toString();
+    if(decoderesult.listMeterMess.isEmpty() || decoderesult.errCode != DLT645_HAS_NO_ERRORS){
+        if(hasNoData(decoderesult.commandCode)){ //add something 2 vrsn
+            insertNotSupValues2hash(lastMonthDtStr, energyletter, trff, resulthash);
+
+            resulthash.insert("vrsn", enableDisableTheEnergyKey(hashTmpData.value("vrsn").toString(), hashTmpData.value("DLT_currEnrgLetter").toString(), false));
+
+            resulthash.insert("messFail", false);//go to the next energy
+            resulthash.insert("currEnrg", hashTmpData.value("DLT_currEnrg"));
+            return resulthash;
+        }
+    }
+    resulthash.insert("vrsn", enableDisableTheEnergyKey(hashTmpData.value("vrsn").toString(), hashTmpData.value("DLT_currEnrgLetter").toString(), true));
+    preparyTariffResultHash(lastMonthDtStr, decoderesult.listMeterMess, hashTmpData, trff, energyletter, resulthash);
     return resulthash;
 }
 

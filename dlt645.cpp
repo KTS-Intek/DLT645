@@ -155,16 +155,14 @@ QVariantHash DT645::meterSn2NI(const QString &meterSn)
 
 Mess2meterRezult DT645::messParamPamPam(const Mess2meterArgs &pairAboutMeter)
 {
-    Q_UNUSED(pairAboutMeter);
-    return Mess2meterRezult();
+    return encoderdecoder.messParamPamPam(pairAboutMeter);
 }
 
 //-----------------------------------------------------------------------------
 
 QVariantHash DT645::decodeParamPamPam(const DecodeMeterMess &threeHash)
 {
-    Q_UNUSED(threeHash);
-    return QVariantHash();
+    return encoderdecoder.decodeParamPamPam(threeHash);
 }
 
 //-----------------------------------------------------------------------------

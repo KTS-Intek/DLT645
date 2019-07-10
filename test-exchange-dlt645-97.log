@@ -1,0 +1,333 @@
+Frame
+68H A0-A5  68H ControlCode Len DATA CheckCode 16H
+
+68      - frame start mark
+A0-A5   -address 6 -bytes, 999999999999H - is broadcast - no ACK
+ControlCode - 
+        D7 - 0 -request, 1 - response
+        D6 - 0 - corr. response from the slave station, 1 - abnormal response from slave station
+        D5 - 0 - frame without subsequent data, 1 - frame with subsequent data
+        D4...D0 - 
+                00000 - reserve
+                ///1997
+                00001 - read data
+                00010 - read subsequent data
+                00011 - re-read data
+                00100 - write data
+                
+                /// 2007
+                01000 - broadcasting timing
+                10001 - read data
+                10010 - read subsequent data
+                10011 - read communication address
+                10100 - write data
+                10101 - write communication address
+                10110 - freeze command
+                10111 - change communication rate
+                11000 - change password
+                11001 - maximum demand zero clearing
+                11010 - watt-hour zero clearing
+                11011 - event zero clearing
+                
+Len - len of the data field
+        reading Len <= 200
+        writing Len <= 50
+        
+DATA - data
+
+CheckCode - the sum of module 256 from the start mark to the before CheckCode
+
+16H - end of the frame
+        
+        
+
+
+Lead byte  FEh - to wake up the receiver
+
+68 99 99 99 99 99 99 68 23 02 61 00 EC 16
+68 99 99 99 99 99 99 68 23 02 62 00 ED 16
+
+FEFEFEFE 68 78 56 34 12 00 00 68 11 04 33 33 34 33 C6 16
+
+63295
+FE 68 95 32 06 00 00  68 11 04 33 33 34 33 7f 16
+
+
+
+example send_command_3 Positive reactive energy  DLT645-1997
+0xFE,0xFE,0x68,0x42,0x36,0x00,0x00,0x86,0x09,0x68,0x01,0x02,0x43,0xC4,0xE1,0x16
+
+write   68 99 99 99 99 99 99 68 01 02 43 C4 70 16
+read    68 95 32 06 00 00 00 68 81 06 43 C4 33 33 33 33 F7 16    h.2....h..C.3333
+        
+        43 C4  -0x33 => 10 91 -> 
+                                        1001  - energy
+                                        00 - currently
+                                        01 - reactive
+                                        
+                                        0001 - positive energy
+                                        0000 - total
+                                        
+                                        
+        33 33 33 33 -0x33 => 00 00 00 00  = 0 kvar
+
+    
+
+example send_command_2         Reverse active energy   DLT645-1997
+0xFE,0xFE,0x68,0x42,0x36,0x00,0x00,0x86,0x09,0x68,0x01,0x02,0x53,0xC3,0xF0,0x16      
+
+write   68 99 99 99 99 99 99 68 01 02 53 C3 7f 16
+read    68 95 32 06 00 00 00 68 81 06 53 C3 33 33 33 33 06 16  h.2....h..S.3333
+                                
+        53 C3 -0x33 => 20 90 ->
+                                1001 - energy
+                                00 - currently
+                                00 - active
+                                                                
+                                0010 - negative
+                                0000 - total
+                                
+                                
+                           
+                                
+        33 33 33 33 -0x33 => 00 00 00 00 = 0.0 kWh - A-?
+
+                               
+example send_command_1  Positive active energy   DLT645-1997
+0xFE,0xFE,0x68,0x42,0x36,0x00,0x00,0x86,0x09,0x68,0x01,0x02,0x43,0xC3,0xE0,0x16
+
+
+write   68 99 99 99 99 99 99 68 01 02 43 C3 6f 16 - 
+        68 
+        99 99 99 99 99 99 
+        68 
+        01 
+        02 
+        43 C3   - 04 03 0C 03 -0x33 => 10 90 - 01 00 09 00
+        6f 16
+
+
+read    68 95 32 06 00 00 00 68 81 06 43 C3 48 33 33 33 0B 16  
+        68 95 32 06 00 00 00 68 81 06 43 C3 49 33 33 33 0C 16   h.2....h..C.I333
+        
+        68 
+        95 32 06 00 00 00  - address 063295
+        68 
+        81 - 10000001 - response, 
+        
+                
+        06 - len
+        43 C3 - obis?
+        48 33 33 33    -0x33 => 00 00 00 15 = 0.15 kWh
+        0B 16 - CC + end frame
+                              
+
+read    68 95 32 06 00 00 00 68 81 06 43 C3 59 33 33 33 1C 16   h.2....h..C.Y333
+        
+          43 C3 
+          59 33 33 33 -0x33 => 00 00 00 26  0.26 kWh - obis 00000
+          
+          
+          
+         68 95 32 06 00 00 00 68 81 06 43 C3 5A 33 33 33 1D 16  h.2....h..C.Z333
+         43 C3  - 10 90
+         5A 33 33 33 -0x33 => 00 00 00 27 = 0.27 kWh- obis 0000 
+          
+          
+         
+         68 95 32 06 00 00 00 68 81 06 43 C3 69 33 33 33 2C 16   h.2....h..C.i333
+         43 C3 
+         69 33 33 33 -0x33 => 00 00 00 36 = 0.54 kWh 
+                               
+                               
+FE FE  68 99 99 99 99 99 99 68 01 02 43 C3 E0 16
+
+
+68 99 99 99 99 99 99 68 01 04 00 01 00 00  6C 16 //current total positive energy
+68 95 32 06 00 00 00 68 C1 01 35 94 16          h.2....h..5
+
+
+68 
+95 32 06 00 00 00  -adddress
+68 
+C1 - 11000001 - response, abnormal, 
+01 - len
+35 -error code
+        00110101
+        0 - reserve
+        0 - exceed rate number
+        1 - exceed daily time period number
+        1 - exceed yearly time-zone number
+        0 - communication rate can not be changed
+        1 - wrong password/no authorization
+        0 - no request data
+        1 - other error
+
+
+
+94 16     
+
+
+68 99 99 99 99 99 99 68 12 04 00 01 00 00  7D 16 //current total positive energy - no answer
+
+
+68 95 32 06 00 00 00 68 11 04 - sum=434
+
+68 95 32 06 00 00 00 68 11 04 00 01 00 00 B4 16 - no answer
+
+
+
+
+
+68 95 32 06 00 00 00 68 01 04 - sum=418
+
+68 95 32 06 00 00 00 68 01 04 00 01 00 00 a3 16 
+68 95 32 06 00 00 00 68 C1 01 35 94 16          h.2....h..5
+
+
+
+68 95 32 06 00 00 00 68 01 04 00 01 00 FF a2 16 
+68 95 32 06 00 00 00 68 C1 01 35 94 16          h.2....h..5
+
+
+
+68 95 32 06 00 00 00 68 01 04 33 34 33 33 6f 16 no
+68 95 32 06 00 00 00 68 11 04 33 34 33 33 7f 16 
+
+
+
+//from https://github.com/glx-technologies/meter-dlt645/blob/master/dlt645.py
+FE FE 68 99 99 99 99 99 99 68 00 00 66 16
+
+
+//https://github.com/caoenjie/LM400T-dlt645/blob/master/dlt645.c
+//DLT645_PKT_TYPE_READ_ADDRESS
+FE FE FE FE 68 99 99 99 99 99 99 68 13 00 79 16 no answer
+
+FE FE FE FE 68 aa aa aa aa aa aa 68 13 00 df 16 no answer
+
+
+//DLT645_PKT_TYPE_READ_DATA
+FE FE FE FE 68 99 99 99 99 99 99 68 11 04  33 34 33 33 48 16
+
+
+//DTSD22 supports only DLT645-1997
+w > 68 99 99 99 99 99 99 68 01 02 33 C3 5f 16
+r < 68 95 32 06 00 00 00 68 81 06 33 C3 6B 33 33 33 1E 16 h.2....h..3.k333
+        81 - answer, ok
+        06 - len
+        33 C3 - active energy   -0x33 => 00 90  - 1001 0000 0000 0000 - power energy
+        6B 33 33 33 - 00 00 00.38 kWh
+        
+        
+w > 68 99 99 99 99 99 99 68 01 02 44 e9 96 16     
+r < 68 95 32 06 00 00 00 68 81 04 44 E9 33 33 B5 16
+        81
+        04 - len
+        44 E9 - voltage -0x33 => 11 b6 - 1011 0110  0001 0001 
+        33 33 - 0000 V
+                               
+
+                               
+                               
+//all Total A+
+1001 0000  0001 1111 -> 1f 90 + 0x33 => 52 C3
+ w > 68 99 99 99 99 99 99 68 01 02  52 C3 7e 16                
+ r > 68 95 32 06 00 00 00 68 81 16 52 C3 6C 33 33 33 33 33 33 33 36 33 33 33 57 33 33 33 45 33 33 33 33336333W333E333 B7 16     h.2....h..R.l333
+      
+        81 
+        16 - len 22
+        52 C3 -0x33=> 1F 90
+        6C 33 33 33 33 33 33 33 36 33 33 33 57 33 33 33 45 33 33 33 33336333W333E333                           
+                                
+
+//DTSF22 - supports only DLT645-1997
+w > 68 99 99 99 99 99 99 68 01 02 43 C3 6F 16
+r < FE FE FE FE 68 34 69 17 08 17 20 68 81 06 43 C3 36 33 33 33 1F 16 ....h4i... h..C
+        81 
+        06 
+        43 C3 
+        36 33 33 33 -0x33 => 00 00 00 03 = 0.03 kWh                         
+
+//all Total A+
+w > 68 99 99 99 99 99 99 68 01 02 52 C3 7E 16  
+r < FE FE FE FE 68 34 69 17 08 17 20 68 81 16 52 C3 ....h4i... h..R
+                               36 33 33 33 33 33 33 33 36 33 33 33 33 33 33 33 6333333363333333
+                               33 33 33 33 71 16                               3333q
+                               
+
+w > 68 99 99 99 99 99 99 68 01 02 44 E9 96 16 
+r < FE FE FE FE 68 34 69 17 08 17 20 68 C1 01 35 BA 16 ....h4i... h..5
+                               C1 - 1100 0001 - answer, abnormal, read data
+                               01  - len
+                               35 - 0011 0101 -  Method data, wrong password, Time number zone over , days period
+                           
+//table A5  c0 32 > 30C0 > 63 F3
+w > 68 99 99 99 99 99 99 68 01 02 63 F3 BF 16
+r < FE FE FE FE 68 34 69 17 08 17 20 68 81 05 63 F3 33 49 33 4E 16  ....h4i... h..c
+        81 
+        05 - len
+        63 F3 
+        33 49 33 -> 00 16 00
+
+//table A5  c0 32 > 32C0 > 65 F3  - S/N serial number
+w > 68 99 99 99 99 99 99 68 01 02 65 F3 C1 16
+r < FE FE FE FE 68 34 69 17 08 17 20 68 81 08 65 F3 67 9C 4A 3B 4A 53 C9 16 
+        81 
+        08 - len
+        65 F3 
+        67 9C 4A 3B 4A 53 -0x33 => 20 17 08 17 69 34
+
+
+//table A5  c0 10 > 10C0 > 43 F3  - Date 
+w > 68 99 99 99 99 99 99 68 01 02 43 F3 9f 16
+r < FE FE FE FE 68 34 69 17 08 17 20 68 81 06 43 F3 39 39 3A 4C 78 16 ....h4i... h..C
+        81 
+        06 
+        43 F3 
+        39 39 3A 4C  -0x33 =>  19 07 06 06  yyMMddww
+        
+//table A5  c0 11 > 11C0 > 44 F3  -  time
+w > 68 99 99 99 99 99 99 68 01 02 44 F3 A0 16
+r < FE FE FE FE 68 34 69 17 08 17 20 68 81 05 44 F3 37 55 55 61 16
+        81 
+        05 
+        44 F3 
+        37 55 55 -0x33 => 22 22 05
+        
+        
+      
+      
+//table A5  c0 10 > 10C0 > 43 F3  - Date / time
+w > 68 99 99 99 99 99 99 68 01 05 43 F3 AA 44 F3 83 16  - no answer
+w > 68 99 99 99 99 99 99 68 01 05 43 F3 DD 44 F3 B6 16  - no answer  
+               
+
+//read date and time               
+68 F4  -0x33 => C1 35
+w > 68 99 99 99 99 99 99 68 01 02 68 F4 C5 16      
+r < FE FE FE FE 68 34 69 17 08 17 20 68 C1 01 35 BA 16  - unkn command?
+
+//write date 
+68 99 99 99 99 99 99 68 04 0a  43 F3 00 00 00 00 39 39 3A 4C   a2 16
+FE FE FE FE 68 34 69 17 08 17 20 68 C4 01 37 BF 16
+C4 - 1100 0100 response,abnormal, write data
+01 
+37
+
+68 99 99 99 99 99 99 68 04 0a  43 F3 33 33 33 33 39 39 3A 4C   6E 16
+FE FE FE FE 68 34 69 17 08 17 20 68 C4 01 34 BC 16 
+C4 - 1100 0100 response,abnormal, write data
+01 
+34 - 0011 0100 - wrong password, 
+
+
+
+                               
+//all Energies A
+1001 0000  1111 1111 -> ff 90 + 0x33 => 32 C3
+ w > 68 99 99 99 99 99 99 68 01 02  32 C3 5e 16              
+ r > FE FE FE FE 68 34 69 17 08 17 20 68 C1 01 35 BA 16
+
+                        
+ 
